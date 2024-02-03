@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>Setup</title>
+	<style>
+		body { padding: 30px 60px 30px; }
+		h2, footer { margin: 200px 0 20px; }
+		footer h2 { margin: 30px 0 15px; }
+	</style>
+  <meta name="viewport" content="initial-scale=1.0">
+  <link rel="stylesheet" href="/static/bootstrap.min.css">
+</head>
+<body>
+  <h3 id="messages">Setup</h3>
+  <p>
+    <div id="wificontainer" style="opacity: 1; transition: all 1s;">
+      <div id="choose_hotspot">Choose hotspot</div>
+      <select id="ssid" onchange="setSSID()"></select>
+
+      <div id="passwordContainer" style="opacity: 0; transition: all 1s;">
+        WiFi password:
+        <input type="password" id="password" value="" onchange="activateButton()"></input><br>
+
+        Optional URL and auth token for updates:<br>
+        <input type="text" id="update_url" value="https://raw.githubusercontent.com/mcarlson/iotkit/main" onchange="activateButton()"></input>
+        <input type="password" id="auth_token" value=""></input><br>
+        <input type="button" id="connectbutton" value="Connect" onclick="connectToWifi()" style="opacity: 0; transition: all 1s;"></input><br>
+      </div>
+    </div>
+
+    <div id="setup" style="opacity: 0; transition: all 1s;">
+      Name: <input type="text" id="deviceName" value=""></input><br>
+      Timezone offset from UTC in hours:
+      <input type="text" id="timezoneOffset" value="0"></input><br><br>
+
+      <input type="button" id="cancelbutton" value="Cancel" onclick="document.location = '/'" style="opacity: 0; transition: all"></input>
+      <input type="button" id="savebutton" value="Save" onclick="finishSetup()"></input>
+
+      <br><br>
+
+      <h3>Preferences</h3>
+      <div class="container">
+        <div class="row">
+          <div class="col">
+            <textarea id="prefdisplay" style="height: 300px; width: 100%"></textarea>
+          </div>
+        </div>
+        <div class="row">
+          <button class="col" onclick="getPrefs()">Load</button>
+          <button class="col" onclick="setPrefs()">Save</button>
+        </div>
+      </div>
+
+      <br><br>
+
+      <h3>Advanced</h3>
+      <div class="container">
+        <div class="row">
+          <button class="col" onclick="restart()">Restart</button>
+          <button class="col" onclick="factoryReset()">Factory reset</button>
+        </div>
+        <div id="version" class="col" style="font-size: xx-small; color: gray; float: right;"></div>
+      </div>
+    </div>
+	</p>
+
+	<script>
+  prefs = {}
+  function setSSID() {
+    setPrefFromForm('ssid');
+    const sel = document.querySelector('#ssid');
+    prefs.ssid = sel.options[sel.selectedIndex].text;
+    //console.log('ssid', prefs, sel)
+    const pwd = document.querySelector('#passwordContainer');
+    pwd.style.opacity = '1';
+    pwd.focus()
+  }
+
+  function activateButton() {
+    const but = document.querySelector('#connectbutton');
+    but.style.opacity = '1';
+  }
+
+  function setPrefFromForm(id, isnumeric=false) {
+    const el = document.querySelector('#' + id);
+    val = el.value
+    if (isnumeric) {
+      val = parseFloat(val)
+      if (isNaN(val)) {
+        return
+      }
+    }
+    prefs[id] = val
+    // console.log('setPrefFromForm:', id, isnumeric, el, val, prefs);
+    return val
+  }
+
+  async function connectToWifi() {
+    setPrefFromForm('auth_token');
+    setPrefFromForm('update_url');
+    setPrefFromForm('password');
+
+    if (prefs.password) {
+      error = ""
+      document.querySelector('#messages').innerHTML = 'Connecting...'
+      tId = setTimeout(() => {
+        document.querySelector('#messages').innerHTML = 'Connect to the setup hotspot and try again.'
+      }, 10000)
+      try{
+        result = await postJSON("/wifi", prefs)
+        response = await result.text()
+        //console.log('got response', response)
+        clearTimeout(tId)
+      } catch (e) {
+        console.log('error', e)
+      }
+      if (response) {
+        const messages = document.querySelector('#messages');
+        if (response === 'password') {
+          messages.innerHTML = 'Invalid password. Please try again.'
+        } else if (response) {
+          // got IP!
+          redirectUrl = 'http://' + response + '/setup'
+          messages.innerHTML = 'Restarting and redirecting to ' + redirectUrl;
+          restart()
+          document.location = redirectUrl;
+        }
+      }
+      //console.log('pwd', prefs, error)
+    }
+  }
+
+  async function finishSetup() {
+    setPrefFromForm('timezoneOffset', true);
+    setPrefFromForm('deviceName');
+
+    result = await postJSON("/prefs", prefs)
+    const messages = document.querySelector('#messages');
+    messages.innerHTML = 'Saved.'
+    document.location = '/';
+  }
+
+  async function prefsLoaded() {
+    document.querySelector('#prefdisplay').value = JSON.stringify(prefs, undefined, 2)
+    if (prefs.timezoneOffset) document.querySelector('#timezoneOffset').value = prefs.timezoneOffset;
+    if (prefs.password) document.querySelector('#password').value = prefs.password;
+    if (prefs.auth_token) document.querySelector('#auth_token').value = prefs.auth_token;
+    if (prefs.update_url) document.querySelector('#update_url').value = prefs.update_url;
+    if (prefs.deviceName) document.querySelector('#deviceName').value = prefs.deviceName;
+
+    ver = document.getElementById('version')
+    ver.innerHTML = 'Version: ' + prefs.VERSION + ' (' + prefs.commithash.substr(0,6) + ')'
+  }
+
+  async function getPrefs() {
+    try {
+      prefs = await getJSON("/prefs")
+      prefsLoaded()
+      //console.log('prefs', prefs)
+    } catch (e) {
+      console.log('failed to load prefs', e)
+    }
+  }
+
+  async function postJSON(url, data) {
+    try{
+      return await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      });
+    } catch (error) {
+      console.error("postJSON Error:", url, error);
+    }
+  }
+
+  async function getJSON(url) {
+    try{
+      const response = await fetch(url);
+      return await response.json()
+    } catch (error) {
+      console.error("getJSON Error:", url, error);
+    }
+  }
+
+  async function setPrefs() {
+    try {
+      var data = JSON.parse(prefdisplay.value)
+      if (data.password == "" || data.password == "SETME") {
+        return;
+      }
+      await postJSON("/prefs", data)
+      restart()
+    } catch (error) {
+      console.error("setPrefs Error:", error);
+    }
+  }
+
+  async function getNetworks() {
+    try {
+      result = await getJSON("/wifi/networks")
+      if (result && result.length > 0) {
+        const sel = document.querySelector('#ssid');
+        sel.options.add(new Option('', ''))
+        result.map((hotspot) => {
+          const opt = new Option(hotspot[0], hotspot[0])
+          sel.options.add(opt)
+        })
+      } else {
+        messages.innerHTML = 'Setup'
+        const ssidel = document.querySelector('#ssid')
+        ssidel.style.display = 'none'
+        const choose_hotspotel = document.querySelector('#choose_hotspot')
+        choose_hotspotel.innerHTML = 'Connected to ' + prefs.ssid
+        const pwd = document.querySelector('#passwordContainer');
+        pwd.style.opacity = '1';
+        pwd.focus()
+        const setupel = document.querySelector('#setup')
+        setupel.style.opacity = 1
+        const cancelel = document.querySelector('#cancelbutton')
+        cancelel.style.opacity = 1
+      }
+      //console.log('networks', result, sel)
+    } catch (e) {
+      console.log('failed to load networks', e)
+    }
+  }
+
+  async function restart() {
+    try {
+      await postJSON("/restart")
+    } catch (e) {
+      console.log('failed to restart', e)
+    }
+  }
+
+  async function factoryReset() {
+    try {
+      await postJSON("/prefs", {})
+      await postJSON("/restart")
+    } catch (e) {
+      console.log('failed to factory reset', e)
+    }
+  }
+
+  getPrefs()
+  getNetworks()
+  document.querySelector('#timezoneOffset').value = -(new Date().getTimezoneOffset() / 60)
+	</script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>Config</title>
+	<style>
+		body { padding: 30px 60px 30px; }
+		h2, footer { margin: 200px 0 20px; }
+		footer h2 { margin: 30px 0 15px; }
+	</style>
+  <meta name="viewport" content="initial-scale=1.0">
+  <link rel="stylesheet" href="static/bootstrap.min.css">
+</head>
+<body>
+  <h1 id="deviceName"></h1>
+  <br>
+  <div class="container">
+    <div class="row justify-content-end">
+      <button class="col" onclick="document.location = '/setup'">Settings</button>
+    </div>
+    <div id="version" class="row" style="font-size: xx-small; color: gray; float: right;"></div>
+  </div>
+
+  <script>
+  prefs = {}
+
+  async function getPrefs() {
+    try {
+      prefs = await getJSON("/prefs")
+      render()
+    } catch (e) {
+      console.log('failed to load prefs', e)
+    }
+  }
+
+  async function getJSON(url) {
+    try{
+      const response = await fetch(url);
+      return await response.json()
+    } catch (error) {
+      console.error("getJSON Error:", url, error);
+    }
+  }
+
+  function render(){
+    document.getElementById('deviceName').innerHTML = document.title = (prefs.deviceName || 'iotkit') + ' configuration'
+  }
+
+  getPrefs()
+	</script>
+</body>
+</html>
